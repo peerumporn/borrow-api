@@ -1,0 +1,12 @@
+# ค่าลับ ห้าม commit
+.env
+
+# virtual environment
+.venv/
+
+# ฐานข้อมูล SQLite ในเครื่อง
+*.db
+
+# ไฟล์ที่ Python สร้างเอง
+__pycache__/
+*.pyc

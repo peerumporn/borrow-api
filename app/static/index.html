@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8"> <!-- ใช้ UTF-8 เพื่อแสดงภาษาไทยได้ถูกต้อง -->
+  <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- ปรับขนาดให้พอดีจอโทรศัพท์ -->
+  <title>Borrow API</title> <!-- ชื่อที่แสดงบนแท็บเบราว์เซอร์ -->
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.5"></script> <!-- โหลด Tailwind CSS จาก CDN ไม่ต้องติดตั้ง -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.17.5/dist/cdn.min.js"></script> <!-- โหลด Alpine.js หลังหน้าเว็บพร้อม -->
+  <script>
+    function borrowApp() {  // ฟังก์ชันสร้างข้อมูลและคำสั่งทั้งหมดของหน้านี้ Alpine.js เรียกใช้ผ่าน x-data
+      return {  // คืนอ็อบเจกต์ที่ Alpine.js จะคอยดู ถ้าค่าเปลี่ยน หน้าจอจะเปลี่ยนตามเอง
+        equipment: [],  // รายการอุปกรณ์ที่ได้จาก GET /equipment
+        loans: [],  // รายการยืมที่ได้จาก GET /loans
+        username: '',  // ค่าที่พิมพ์ในช่องชื่อผู้ใช้ (ผูกด้วย x-model)
+        password: '',  // ค่าที่พิมพ์ในช่องรหัสผ่าน (ผูกด้วย x-model)
+        token: '',  // JWT ที่ได้หลัง login ว่างแปลว่ายังไม่ได้ login
+        me: { full_name: '', role: '' },  // ข้อมูลผู้ใช้ที่ login อยู่ จาก GET /auth/me
+        message: '',  // ข้อความแจ้งผลล่าสุด เช่น ยืมสำเร็จ หรือ error จาก server
+
+        async loadEquipment() {  // ดึงรายการอุปกรณ์ ใช้ได้โดยไม่ต้อง login
+          const res = await fetch('/equipment');  // ส่ง GET ไปที่ API ของเราเอง (path สัมพัทธ์ ใช้ได้ทั้งในเครื่องและบน Render)
+          this.equipment = await res.json();  // แปลง body จาก JSON เป็น array แล้วเก็บไว้ หน้าจอจะแสดงรายการใหม่เอง
+        },
+
+        async login() {  // ส่งชื่อผู้ใช้และรหัสผ่านไปแลกเป็น JWT
+          const res = await fetch('/auth/login', {  // ส่ง request ไปที่ endpoint login
+            method: 'POST',  // login ต้องใช้ POST เพราะส่งข้อมูลลับไปใน body
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },  // /auth/login รับข้อมูลแบบฟอร์ม ไม่ใช่ JSON
+            body: new URLSearchParams({ username: this.username, password: this.password }),  // แปลงเป็นรูปแบบ username=...&password=...
+          });
+          const data = await res.json();  // อ่าน body ที่ server ตอบกลับมา
+          if (!res.ok) return this.showError(res.status, data);  // ถ้า status ไม่ใช่ 2xx ให้แสดง error แล้วหยุด
+          this.token = data.access_token;  // เก็บ JWT ไว้แนบกับ request ต่อ ๆ ไป
+          this.password = '';  // ล้างรหัสผ่านออกจากหน้าจอ ไม่เก็บไว้นานเกินจำเป็น
+          await this.loadMe();  // ถามว่า token นี้เป็นของใคร
+          await this.loadLoans();  // โหลดรายการยืมของผู้ใช้คนนี้
+          this.message = '✅ 200 login สำเร็จ';  // แจ้งผลให้ผู้ใช้เห็น
+        },
+
+        async loadMe() {  // ดึงข้อมูลผู้ใช้ที่ login อยู่
+          const res = await fetch('/auth/me', {  // endpoint นี้ต้องแนบ token
+            headers: { Authorization: 'Bearer ' + this.token },  // แนบ JWT แบบ Bearer เหมือนตอนใช้ curl -H
+          });
+          this.me = await res.json();  // เก็บชื่อและ role ไว้แสดงบนหน้าจอ
+        },
+
+        async loadLoans() {  // ดึงรายการยืม (student เห็นของตัวเอง staff เห็นทั้งหมด)
+          const res = await fetch('/loans', {  // endpoint นี้ต้อง login
+            headers: { Authorization: 'Bearer ' + this.token },  // แนบ JWT
+          });
+          this.loans = await res.json();  // เก็บรายการยืมไว้แสดงบนหน้าจอ
+        },
+
+        async borrow(equipmentId) {  // ยืมอุปกรณ์ 1 ชิ้น
+          const res = await fetch('/loans', {  // ส่ง request ไปที่ endpoint ยืม
+            method: 'POST',  // การยืมคือการสร้างรายการใหม่ จึงใช้ POST
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + this.token },  // บอกว่า body เป็น JSON และแนบ JWT
+            body: JSON.stringify({ equipment_id: equipmentId }),  // แปลง object เป็นข้อความ JSON ก่อนส่ง
+          });
+          const data = await res.json();  // อ่าน body ที่ server ตอบกลับมา
+          if (!res.ok) return this.showError(res.status, data);  // เช่น 409 เมื่ออุปกรณ์ถูกยืมอยู่
+          this.message = '✅ ' + res.status + ' ยืมสำเร็จ รหัสการยืม ' + data.id;  // แสดง status 201 และรหัสการยืม
+          await this.loadEquipment();  // โหลดรายการอุปกรณ์ใหม่ เพื่อให้สถานะเปลี่ยนเป็น "ถูกยืม"
+          await this.loadLoans();  // โหลดรายการยืมใหม่
+        },
+
+        async returnLoan(loanId) {  // คืนอุปกรณ์ตามรหัสการยืม
+          const res = await fetch('/loans/' + loanId + '/return', {  // ต่อรหัสการยืมเข้าไปใน path
+            method: 'POST',  // การคืนเปลี่ยนสถานะข้อมูล จึงใช้ POST
+            headers: { Authorization: 'Bearer ' + this.token },  // แนบ JWT
+          });
+          const data = await res.json();  // อ่าน body ที่ server ตอบกลับมา
+          if (!res.ok) return this.showError(res.status, data);  // เช่น 409 เมื่อคืนไปแล้ว
+          this.message = '✅ ' + res.status + ' คืนสำเร็จ';  // แจ้งผล
+          await this.loadEquipment();  // อุปกรณ์กลับมาว่าง ต้องโหลดใหม่
+          await this.loadLoans();  // รายการยืมมีเวลาคืนแล้ว ต้องโหลดใหม่
+        },
+
+        logout() {  // ออกจากระบบฝั่งหน้าเว็บ
+          this.token = '';  // ลืม JWT ไป request ต่อไปจะไม่มี token
+          this.me = { full_name: '', role: '' };  // ล้างข้อมูลผู้ใช้
+          this.loans = [];  // ล้างรายการยืมออกจากหน้าจอ
+          this.message = 'ออกจากระบบแล้ว';  // แจ้งผล
+        },
+
+        showError(status, data) {  // แปลง error จาก server เป็นข้อความที่อ่านง่าย
+          const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;  // 422 ส่ง detail เป็น array ส่วน error อื่นเป็นข้อความ
+          this.message = '⛔ ' + status + ' ' + detail;  // แสดงทั้ง status code และเหตุผลจาก server
+        },
+
+        equipmentName(equipmentId) {  // หาชื่ออุปกรณ์จากรหัส เพื่อแสดงในรายการยืม
+          const item = this.equipment.find(e => e.id === equipmentId);  // ค้นในรายการอุปกรณ์ที่โหลดไว้แล้ว
+          return item ? item.name : 'อุปกรณ์ #' + equipmentId;  // ถ้าหาไม่เจอ (เช่น ถูกลบ) ให้แสดงรหัสแทน
+        },
+      };
+    }
+  </script>
+</head>
+<body class="bg-[#FAF8F3] text-[#1F2937] p-4 sm:p-8"> <!-- พื้นหลังขาวงาช้าง ตัวอักษรดำอมเทา ตามธีมของเล่ม -->
+  <main class="max-w-2xl mx-auto space-y-6" x-data="borrowApp()" x-init="loadEquipment()"> <!-- ผูกข้อมูลจาก borrowApp และโหลดอุปกรณ์ตอนเปิดหน้า -->
+    <h1 class="text-2xl font-semibold text-[#0B2545] border-b-2 border-[#B08D57] pb-2">ระบบยืม-คืนอุปกรณ์</h1> <!-- หัวข้อหน้า -->
+
+    <p class="bg-white border border-[#E5E1D8] rounded p-3" x-show="message" x-text="message"></p> <!-- กล่องแจ้งผล แสดงเมื่อมีข้อความ -->
+
+    <section class="bg-white border border-[#E5E1D8] rounded p-4 space-y-3" x-show="!token"> <!-- ฟอร์ม login แสดงเมื่อยังไม่มี token -->
+      <h2 class="font-semibold text-[#0F766E]">เข้าสู่ระบบ</h2> <!-- หัวข้อส่วน login -->
+      <input class="border rounded px-3 py-2 w-full" placeholder="ชื่อผู้ใช้" x-model="username"> <!-- ช่องชื่อผู้ใช้ ผูกกับตัวแปร username -->
+      <input class="border rounded px-3 py-2 w-full" type="password" placeholder="รหัสผ่าน" x-model="password"> <!-- ช่องรหัสผ่าน ซ่อนตัวอักษรที่พิมพ์ -->
+      <button class="bg-[#0B2545] text-white rounded px-4 py-2" @click="login()">เข้าสู่ระบบ</button> <!-- กดแล้วเรียกฟังก์ชัน login -->
+    </section>
+
+    <section class="flex justify-between items-center" x-show="token"> <!-- แถบผู้ใช้ แสดงเมื่อ login แล้ว -->
+      <span x-text="'👤 ' + me.full_name + ' (' + me.role + ')'"></span> <!-- แสดงชื่อและ role จาก /auth/me -->
+      <button class="border rounded px-3 py-1" @click="logout()">ออกจากระบบ</button> <!-- กดแล้วล้าง token -->
+    </section>
+
+    <section class="space-y-2"> <!-- รายการอุปกรณ์ ทุกคนเห็น -->
+      <h2 class="font-semibold text-[#0F766E]">อุปกรณ์</h2> <!-- หัวข้อส่วนอุปกรณ์ -->
+      <template x-for="item in equipment"> <!-- วนสร้างแถวตามจำนวนอุปกรณ์ -->
+        <div class="bg-white border border-[#E5E1D8] rounded p-3 flex justify-between items-center gap-2"> <!-- กล่องของอุปกรณ์ 1 ชิ้น -->
+          <div> <!-- ส่วนข้อมูลด้านซ้าย -->
+            <p class="font-medium" x-text="item.name"></p> <!-- ชื่ออุปกรณ์ -->
+            <p class="text-sm text-[#6B7280]" x-text="item.serial_no + ' · ' + (item.is_available ? '✅ ว่าง' : '⛔ ถูกยืม')"></p> <!-- เลขครุภัณฑ์และสถานะ ใช้ไอคอนกับข้อความ ไม่ใช้สีอย่างเดียว -->
+          </div>
+          <!-- แสดงปุ่มยืมทุกชิ้นเมื่อ login แล้ว แม้อุปกรณ์ถูกยืมอยู่ เพื่อให้เห็นว่า server เป็นคนตรวจกฎและตอบ 409 -->
+          <button class="bg-[#0F766E] text-white rounded px-3 py-1" x-show="token" @click="borrow(item.id)">ยืม</button> <!-- กดแล้วยืมอุปกรณ์ชิ้นนี้ -->
+        </div>
+      </template>
+      <p class="text-[#6B7280]" x-show="equipment.length === 0">ยังไม่มีอุปกรณ์</p> <!-- แสดงเมื่อไม่มีอุปกรณ์เลย -->
+    </section>
+
+    <section class="space-y-2" x-show="token"> <!-- รายการยืม แสดงเมื่อ login แล้ว -->
+      <h2 class="font-semibold text-[#0F766E]">รายการยืม</h2> <!-- หัวข้อส่วนรายการยืม -->
+      <template x-for="loan in loans"> <!-- วนสร้างแถวตามรายการยืม -->
+        <div class="bg-white border border-[#E5E1D8] rounded p-3 flex justify-between items-center gap-2"> <!-- กล่องของรายการยืม 1 รายการ -->
+          <div> <!-- ส่วนข้อมูลด้านซ้าย -->
+            <p class="font-medium" x-text="'#' + loan.id + ' ' + equipmentName(loan.equipment_id)"></p> <!-- รหัสการยืมและชื่ออุปกรณ์ -->
+            <p class="text-sm text-[#6B7280]" x-text="loan.returned_at ? '✅ คืนแล้ว' : '⏳ ยังไม่คืน'"></p> <!-- สถานะการคืน -->
+          </div>
+          <button class="border border-[#0F766E] text-[#0F766E] rounded px-3 py-1" x-show="!loan.returned_at" @click="returnLoan(loan.id)">คืน</button> <!-- ปุ่มคืน แสดงเฉพาะรายการที่ยังไม่คืน -->
+        </div>
+      </template>
+      <p class="text-[#6B7280]" x-show="loans.length === 0">ยังไม่มีรายการยืม</p> <!-- แสดงเมื่อยังไม่เคยยืม -->
+    </section>
+  </main>
+</body>
+</html>

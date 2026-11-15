@@ -1,0 +1,13 @@
+[project]
+name = "borrow-api"
+version = "0.1.0"
+description = "ระบบยืม-คืนอุปกรณ์แผนกวิชา (Borrow API) สำหรับเอกสารอบรม FastAPI และ Cloud"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.163.0",
+    "psycopg[binary]>=3.3.9",
+    "pwdlib[argon2]>=0.4.0",
+    "pydantic-settings>=2.16.3",
+    "pyjwt>=2.15.1",
+    "sqlmodel>=0.0.50",
+]
